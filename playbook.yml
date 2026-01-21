@@ -1,0 +1,7 @@
+---
+- name: Ansible Playbook - Roles Testing
+  hosts: all
+  tasks:
+    - name: Include role name for Testing
+      include_role:
+        name: ansible-role-ping-test
