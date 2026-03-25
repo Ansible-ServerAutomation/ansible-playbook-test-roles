@@ -1,11 +1,11 @@
 ---
 - name: Fetch Endpoint Credentials
-  hosts: localhost
-  connection: local
+  hosts: all
   tasks:
     - name: Include role name to Fetch Endpoint Credentials
       include_role:
         name: ansible-role-fetch-endpoint-credentials
+      delegate_to: localhost
 
 - name: Ansible Playbook - Roles Testing
   hosts: all
