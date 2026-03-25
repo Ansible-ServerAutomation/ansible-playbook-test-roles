@@ -1,4 +1,8 @@
 ---
+- name: ansible-role-fetch-endpoint-credentials
+  src: git+https://github.com/Ansible-ServerAutomation/ansible-role-fetch-endpoint-credentials.git
+  version: development
+
 - name: ansible-role-ping-test
   src: git+https://github.com/Ansible-ServerAutomation/ansible-role-ping-test.git
   version: development
