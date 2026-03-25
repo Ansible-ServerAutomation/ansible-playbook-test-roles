@@ -1,7 +1,6 @@
 ---
 - name: Fetch Endpoint Credentials
   hosts: localhost
-  connection: local
   tasks:
     - name: Include role name to Fetch Endpoint Credentials
       include_role:
