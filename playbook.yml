@@ -7,6 +7,9 @@
     - name: Run fetch role on localhost
       include_role:
         name: ansible-role-fetch-endpoint-credentials
+      vars:
+        awx_host: "https://awx.local"
+        inventory_host: "Ubuntu"
 
     - name: Include role name for Testing
       include_role:
