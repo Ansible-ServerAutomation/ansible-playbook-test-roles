@@ -10,3 +10,7 @@
 - name: ansible-role-ping-test
   src: git+https://github.com/Ansible-ServerAutomation/ansible-role-ping-test.git
   version: development
+
+- name: update-db
+  src: git+https://github.com/Ansible-ServerAutomation/ansible-role-execution-result-update-db.git
+  version: development
