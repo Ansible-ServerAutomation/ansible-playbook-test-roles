@@ -3,11 +3,11 @@
   hosts: all
   gather_facts: false
   tasks:
-    - name: Install python library for database
-      ansible.builtin.pip:
-        name: psycopg2-binary
-        state: present
-      delegate_to: localhost
+    # - name: Install python library for database
+    #   ansible.builtin.pip:
+    #     name: psycopg2-binary
+    #     state: present
+    #   delegate_to: localhost
 
     - name: Include role name for Testing
       include_role:
