@@ -39,6 +39,18 @@
         msg: "Python executable not found at {{ python_executable }}"
       when: not python_stat.stat.exists
     
+    - name: Display execution banner
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                    🤖 AI AGENT EXECUTION STARTING 🤖                         ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ Agent:              04_github_issue_reporter                                 ║
+          ║ Architecture:       LangGraph ReAct                                          ║
+          ║ Target:             {{ inventory_hostname }}                                                      ║
+          ║ Project Path:       {{ project_dir }}
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+    
     - name: Load and parse .env files into dictionary
       ansible.windows.win_shell: |
         # Initialize hashtable for environment variables
@@ -88,16 +100,26 @@
     - name: Display loaded environment (sanitized - no secrets)
       ansible.builtin.debug:
         msg: |
-          Loaded from .env files:
-          - OLLAMA_BASE_URL: {{ agent_env.OLLAMA_BASE_URL | default('not set') }}
-          - OLLAMA_MODEL: {{ agent_env.OLLAMA_MODEL | default('not set') }}
-          - GITHUB_REPO_OWNER: {{ agent_env.GITHUB_REPO_OWNER | default('not set') }}
-          - GITHUB_REPO_NAME: {{ agent_env.GITHUB_REPO_NAME | default('not set') }}
-          - LANGFUSE_ENABLED: {{ agent_env.LANGFUSE_ENABLED | default('not set') }}
-          From AWX survey:
-          - MODE: {{ agent_env.MODE }}
-          - MAX_ISSUES: {{ agent_env.MAX_ISSUES }}
-          - LOG_LEVEL: {{ agent_env.LOG_LEVEL }}
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                      ENVIRONMENT CONFIGURATION                               ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ Configuration Source: .env files on target host                             ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ FROM ROOT .ENV FILE:                                                         ║
+          ║   • OLLAMA_BASE_URL:       {{ agent_env.OLLAMA_BASE_URL | default('not set') }}
+          ║   • OLLAMA_MODEL:          {{ agent_env.OLLAMA_MODEL | default('not set') }}
+          ║   • LANGFUSE_ENABLED:      {{ agent_env.LANGFUSE_ENABLED | default('not set') }}
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ FROM PROJECT .ENV FILE:                                                      ║
+          ║   • GITHUB_REPO_OWNER:     {{ agent_env.GITHUB_REPO_OWNER | default('not set') }}
+          ║   • GITHUB_REPO_NAME:      {{ agent_env.GITHUB_REPO_NAME | default('not set') }}
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ FROM AWX SURVEY:                                                             ║
+          ║   • MODE:                  {{ agent_env.MODE }}
+          ║   • MAX_ISSUES:            {{ agent_env.MAX_ISSUES }}
+          ║   • DRY_RUN:               {{ agent_env.DRY_RUN }}
+          ║   • LOG_LEVEL:             {{ agent_env.LOG_LEVEL }}
+          ╚══════════════════════════════════════════════════════════════════════════════╝
     
     - name: Execute GitHub Issue Reporter agent via AWX wrapper (Windows PowerShell)
       ansible.windows.win_shell: |
@@ -143,21 +165,86 @@
     - name: Display agent execution result
       ansible.builtin.debug:
         msg: |
-          Status: {{ agent_result.status }}
-          Result: {{ agent_result.result | default('No result') }}
-          Execution Time: {{ agent_result.metadata.execution_time }}s
-          AWX Job ID: {{ agent_result.metadata.awx_job_id }}
-      when: agent_result is defined
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                     AI AGENT EXECUTION COMPLETE                              ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ Agent:              04_github_issue_reporter                                 ║
+          ║ Status:             {{ "✓ SUCCESS" if agent_result.status == "success" else "✗ FAILED" | upper }}                                                  ║
+          ║ Execution Time:     {{ agent_result.metadata.execution_time }}s                                                    ║
+          ║ AWX Job ID:         {{ agent_result.metadata.awx_job_id | default('N/A') }}                                                 ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║                            AGENT OUTPUT                                      ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+          
+          {{ agent_result.result | default('No result returned') }}
+          
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                              END OF OUTPUT                                   ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+      when: agent_result is defined and agent_result.status == "success"
+    
+    - name: Display success summary
+      ansible.builtin.debug:
+        msg: |
+          
+          ✓ Agent execution completed successfully!
+          
+          {% if agent_env.MODE == "report" %}
+          📊 Report generated with {{ agent_env.MAX_ISSUES }} maximum issues
+          {% elif agent_env.MODE == "issue" %}
+          🔍 Issue #{{ agent_env.ISSUE_NUMBER }} analyzed and recommendation posted
+          {% elif agent_env.MODE == "auto-analyze" %}
+          🤖 Auto-analysis completed (Dry Run: {{ agent_env.DRY_RUN }})
+          {% endif %}
+          
+          📈 View traces: {{ agent_env.LANGFUSE_HOST }}/project/{{ agent_env.GITHUB_REPO_NAME }}
+          🐙 GitHub Repo: https://github.com/{{ agent_env.GITHUB_REPO_OWNER }}/{{ agent_env.GITHUB_REPO_NAME }}
+      when: agent_result is defined and agent_result.status == "success"
+    
+    - name: Display agent execution error
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                       ⚠️  AGENT EXECUTION FAILED  ⚠️                         ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ Agent:              04_github_issue_reporter                                 ║
+          ║ Status:             ✗ ERROR                                                  ║
+          ║ Execution Time:     {{ agent_result.metadata.execution_time }}s                                                    ║
+          ║ AWX Job ID:         {{ agent_result.metadata.awx_job_id | default('N/A') }}                                                 ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║                            ERROR DETAILS                                     ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+          
+          {{ agent_result.error | default('Unknown error occurred') }}
+          
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                              END OF OUTPUT                                   ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+      when: agent_result is defined and agent_result.status == "error"
     
     - name: Display raw output if JSON parsing failed
       ansible.builtin.debug:
         msg: |
-          Agent execution completed but output is not valid JSON.
-          Return Code: {{ agent_output.rc }}
-          STDOUT:
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                    ⚠️  JSON PARSING FAILED  ⚠️                              ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║ Agent:              04_github_issue_reporter                                 ║
+          ║ Return Code:        {{ agent_output.rc }}                                                        ║
+          ╠══════════════════════════════════════════════════════════════════════════════╣
+          ║                         STANDARD OUTPUT (STDOUT)                             ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+          
           {{ agent_output.stdout }}
-          STDERR:
+          
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                         STANDARD ERROR (STDERR)                              ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
+          
           {{ agent_output.stderr }}
+          
+          ╔══════════════════════════════════════════════════════════════════════════════╗
+          ║                              END OF OUTPUT                                   ║
+          ╚══════════════════════════════════════════════════════════════════════════════╝
       when: agent_result is not defined and agent_output is defined
     
     - name: Fail if agent execution had non-zero exit code
