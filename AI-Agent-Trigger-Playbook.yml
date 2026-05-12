@@ -39,36 +39,81 @@
         msg: "Python executable not found at {{ python_executable }}"
       when: not python_stat.stat.exists
     
+    - name: Load root .env file into environment
+      ansible.windows.win_shell: |
+        # Read root .env file and export as environment variables
+        $rootEnvFile = "{{ repo_root }}\.env"
+        if (Test-Path $rootEnvFile) {
+          Get-Content $rootEnvFile | ForEach-Object {
+            if ($_ -match '^\s*([^#][^=]+)\s*=\s*(.+)\s*$') {
+              $name = $matches[1].Trim()
+              $value = $matches[2].Trim().Trim("'").Trim('"')
+              Write-Output "$name=$value"
+            }
+          }
+        }
+      register: root_env_output
+      changed_when: false
+      failed_when: false
+    
+    - name: Load project .env file into environment
+      ansible.windows.win_shell: |
+        # Read project .env file and export as environment variables
+        $projectEnvFile = "{{ project_dir }}\.env"
+        if (Test-Path $projectEnvFile) {
+          Get-Content $projectEnvFile | ForEach-Object {
+            if ($_ -match '^\s*([^#][^=]+)\s*=\s*(.+)\s*$') {
+              $name = $matches[1].Trim()
+              $value = $matches[2].Trim().Trim("'").Trim('"')
+              Write-Output "$name=$value"
+            }
+          }
+        }
+      register: project_env_output
+      changed_when: false
+      failed_when: false
+    
+    - name: Parse environment variables from .env files
+      ansible.builtin.set_fact:
+        env_vars: >-
+          {{
+            (root_env_output.stdout_lines | default([]) + project_env_output.stdout_lines | default([]))
+            | select('match', '^[A-Z_]+=.+$')
+            | map('regex_replace', '^([^=]+)=(.*)$', '\1=\2')
+            | list
+          }}
+    
     - name: Set agent execution environment variables
       ansible.builtin.set_fact:
-        agent_env:
-          # Ollama configuration (from AWX credentials)
-          OLLAMA_BASE_URL: "{{ ollama_base_url }}"
-          OLLAMA_API_KEY: "{{ ollama_api_key | default('') }}"
-          OLLAMA_MODEL: "{{ ollama_model }}"
-          
-          # Langfuse observability (from AWX credentials, optional)
-          LANGFUSE_ENABLED: "{{ langfuse_enabled | default('true') }}"
-          LANGFUSE_PUBLIC_KEY: "{{ langfuse_public_key | default('') }}"
-          LANGFUSE_SECRET_KEY: "{{ langfuse_secret_key | default('') }}"
-          LANGFUSE_HOST: "{{ langfuse_host | default('') }}"
-          
-          # GitHub API configuration (from AWX credentials)
-          GITHUB_TOKEN: "{{ github_token }}"
-          GITHUB_REPO_OWNER: "{{ github_repo_owner }}"
-          GITHUB_REPO_NAME: "{{ github_repo_name }}"
-          
-          # Agent execution parameters (from AWX survey)
-          MODE: "{{ mode }}"
-          ISSUE_NUMBER: "{{ issue_number | default('') }}"
-          DRY_RUN: "{{ dry_run | default('false') }}"
-          MAX_ISSUES: "{{ max_issues | default('100') }}"
-          
-          # Logging configuration
-          LOG_LEVEL: "{{ log_level | default('INFO') }}"
-          
-          # AWX job tracking
-          AWX_JOB_ID: "{{ tower_job_id | default('') }}"
+        agent_env: >-
+          {{
+            env_vars
+            | map('regex_replace', '^([^=]+)=(.*)$', '[\1, \2]')
+            | map('from_json')
+            | items2dict
+            | combine({
+              'MODE': mode | default('report'),
+              'ISSUE_NUMBER': issue_number | default(''),
+              'DRY_RUN': dry_run | default('false'),
+              'MAX_ISSUES': max_issues | default('100'),
+              'LOG_LEVEL': log_level | default('INFO'),
+              'AWX_JOB_ID': tower_job_id | default('')
+            })
+          }}
+    
+    - name: Display loaded environment (sanitized - no secrets)
+      ansible.builtin.debug:
+        msg: |
+          Loaded from .env files:
+          - OLLAMA_BASE_URL: {{ agent_env.OLLAMA_BASE_URL | default('not set') }}
+          - OLLAMA_MODEL: {{ agent_env.OLLAMA_MODEL | default('not set') }}
+          - GITHUB_REPO_OWNER: {{ agent_env.GITHUB_REPO_OWNER | default('not set') }}
+          - GITHUB_REPO_NAME: {{ agent_env.GITHUB_REPO_NAME | default('not set') }}
+          - LANGFUSE_ENABLED: {{ agent_env.LANGFUSE_ENABLED | default('not set') }}
+          From AWX survey:
+          - MODE: {{ agent_env.MODE }}
+          - MAX_ISSUES: {{ agent_env.MAX_ISSUES }}
+          - LOG_LEVEL: {{ agent_env.LOG_LEVEL }}
     
     - name: Execute GitHub Issue Reporter agent via AWX wrapper (Windows PowerShell)
       ansible.windows.win_shell: |
