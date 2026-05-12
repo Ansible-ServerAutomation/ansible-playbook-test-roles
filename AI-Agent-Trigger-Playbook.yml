@@ -107,20 +107,38 @@
         # Change to repository root
         Set-Location "{{ repo_root }}"
         
-        # Run agent via AWX wrapper
-        & "{{ python_executable }}" -m common.awx_wrapper 04_github_issue_reporter
+        # Run agent via AWX wrapper and capture output
+        $output = & "{{ python_executable }}" -m common.awx_wrapper 04_github_issue_reporter 2>&1
+        
+        # Extract JSON from output (last line that looks like JSON)
+        $jsonLine = $output | Where-Object { $_ -match '^\s*\{.*"status".*\}' } | Select-Object -Last 1
+        
+        if ($jsonLine) {
+          Write-Output $jsonLine
+        } else {
+          # No valid JSON found, output all for debugging
+          Write-Output "ERROR: No valid JSON output found"
+          $output | ForEach-Object { Write-Output $_ }
+        }
         
         # Return exit code
         exit $LASTEXITCODE
       environment: "{{ agent_env }}"
       register: agent_output
       changed_when: false
-      failed_when: agent_output.rc != 0
+      failed_when: false
+    
+    - name: Extract JSON from agent output
+      ansible.builtin.set_fact:
+        agent_json_output: "{{ agent_output.stdout_lines | select('match', '^\\s*\\{.*\"status\".*\\}') | list | last | default('') }}"
     
     - name: Parse agent output as JSON
       ansible.builtin.set_fact:
-        agent_result: "{{ agent_output.stdout | from_json }}"
-      when: agent_output.stdout | length > 0
+        agent_result: "{{ agent_json_output | from_json }}"
+      when: 
+        - agent_json_output | length > 0
+        - agent_json_output | trim | regex_search('^\{.*\}$')
+      failed_when: false
     
     - name: Display agent execution result
       ansible.builtin.debug:
@@ -134,12 +152,20 @@
     - name: Display raw output if JSON parsing failed
       ansible.builtin.debug:
         msg: |
-          Agent execution completed but output is not JSON.
+          Agent execution completed but output is not valid JSON.
+          Return Code: {{ agent_output.rc }}
           STDOUT:
           {{ agent_output.stdout }}
           STDERR:
           {{ agent_output.stderr }}
-      when: agent_result is not defined and agent_output.stdout | length > 0
+      when: agent_result is not defined and agent_output is defined
+    
+    - name: Fail if agent execution had non-zero exit code
+      ansible.builtin.fail:
+        msg: "Agent execution failed with exit code {{ agent_output.rc }}"
+      when: 
+        - agent_output.rc != 0
+        - agent_result is not defined
     
     - name: Fail if agent execution failed
       ansible.builtin.fail:
