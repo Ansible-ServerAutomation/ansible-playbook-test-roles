@@ -39,67 +39,51 @@
         msg: "Python executable not found at {{ python_executable }}"
       when: not python_stat.stat.exists
     
-    - name: Load root .env file into environment
+    - name: Load and parse .env files into dictionary
       ansible.windows.win_shell: |
-        # Read root .env file and export as environment variables
+        # Initialize hashtable for environment variables
+        $envVars = @{}
+        
+        # Load root .env file
         $rootEnvFile = "{{ repo_root }}\.env"
         if (Test-Path $rootEnvFile) {
           Get-Content $rootEnvFile | ForEach-Object {
             if ($_ -match '^\s*([^#][^=]+)\s*=\s*(.+)\s*$') {
               $name = $matches[1].Trim()
               $value = $matches[2].Trim().Trim("'").Trim('"')
-              Write-Output "$name=$value"
+              $envVars[$name] = $value
             }
           }
         }
-      register: root_env_output
-      changed_when: false
-      failed_when: false
-    
-    - name: Load project .env file into environment
-      ansible.windows.win_shell: |
-        # Read project .env file and export as environment variables
+        
+        # Load project .env file (overrides root if same key)
         $projectEnvFile = "{{ project_dir }}\.env"
         if (Test-Path $projectEnvFile) {
           Get-Content $projectEnvFile | ForEach-Object {
             if ($_ -match '^\s*([^#][^=]+)\s*=\s*(.+)\s*$') {
               $name = $matches[1].Trim()
               $value = $matches[2].Trim().Trim("'").Trim('"')
-              Write-Output "$name=$value"
+              $envVars[$name] = $value
             }
           }
         }
-      register: project_env_output
+        
+        # Add AWX survey parameters
+        $envVars['MODE'] = '{{ mode | default("report") }}'
+        $envVars['ISSUE_NUMBER'] = '{{ issue_number | default("") }}'
+        $envVars['DRY_RUN'] = '{{ dry_run | default("false") }}'
+        $envVars['MAX_ISSUES'] = '{{ max_issues | default("100") }}'
+        $envVars['LOG_LEVEL'] = '{{ log_level | default("INFO") }}'
+        $envVars['AWX_JOB_ID'] = '{{ tower_job_id | default("") }}'
+        
+        # Output as JSON
+        $envVars | ConvertTo-Json -Compress
+      register: env_vars_output
       changed_when: false
-      failed_when: false
-    
-    - name: Parse environment variables from .env files
-      ansible.builtin.set_fact:
-        env_vars: >-
-          {{
-            (root_env_output.stdout_lines | default([]) + project_env_output.stdout_lines | default([]))
-            | select('match', '^[A-Z_]+=.+$')
-            | map('regex_replace', '^([^=]+)=(.*)$', '\1=\2')
-            | list
-          }}
     
     - name: Set agent execution environment variables
       ansible.builtin.set_fact:
-        agent_env: >-
-          {{
-            env_vars
-            | map('regex_replace', '^([^=]+)=(.*)$', '[\1, \2]')
-            | map('from_json')
-            | items2dict
-            | combine({
-              'MODE': mode | default('report'),
-              'ISSUE_NUMBER': issue_number | default(''),
-              'DRY_RUN': dry_run | default('false'),
-              'MAX_ISSUES': max_issues | default('100'),
-              'LOG_LEVEL': log_level | default('INFO'),
-              'AWX_JOB_ID': tower_job_id | default('')
-            })
-          }}
+        agent_env: "{{ env_vars_output.stdout | from_json }}"
     
     - name: Display loaded environment (sanitized - no secrets)
       ansible.builtin.debug:
