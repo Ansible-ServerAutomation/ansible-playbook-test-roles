@@ -157,7 +157,7 @@
     
     - name: Parse agent output as JSON
       ansible.builtin.set_fact:
-        agent_result: "{{ agent_json_output | from_json }}"
+        agent_result: "{{ agent_json_output }}"
       when: 
         - agent_json_output | length > 0
         - agent_json_output | trim | regex_search('^\{.*\}$')
